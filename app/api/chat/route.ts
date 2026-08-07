@@ -1,9 +1,35 @@
-import { deepseek } from '@ai-sdk/deepseek'
+import { createDeepSeek } from '@ai-sdk/deepseek'
 import { streamText, convertToModelMessages } from 'ai'
 import { SYSTEM_PROMPT } from '@/lib/prompts'
 import { clientTools } from '@/lib/tools'
 import { createServerClient } from '@supabase/ssr'
 import type { NextRequest } from 'next/server'
+
+/** 创建千问模型实例 */
+function createQwenModel() {
+  const qwen = createDeepSeek({
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiKey: process.env.DASHSCOPE_API_KEY,
+  })
+  return qwen(process.env.AI_MODEL || 'qwen-plus')
+}
+
+/** 创建 DeepSeek 模型实例 */
+function createDsModel() {
+  const ds = createDeepSeek({
+    apiKey: process.env.DEEPSEEK_API_KEY,
+  })
+  return ds(process.env.AI_MODEL || 'deepseek-v4-pro')
+}
+
+/** 根据 AI_PROVIDER 返回主模型和备用模型 */
+function getModels() {
+  const provider = process.env.AI_PROVIDER || 'qwen'
+  if (provider === 'deepseek') {
+    return { primary: createDsModel(), fallback: createQwenModel() }
+  }
+  return { primary: createQwenModel(), fallback: createDsModel() }
+}
 
 /** 从请求 cookie 中校验用户身份，返回 userId 或 null */
 async function getUserId(req: NextRequest): Promise<string | null> {
@@ -59,16 +85,37 @@ export async function POST(req: NextRequest) {
   }
   systemMessage = systemMessage.replace('{assessmentHistory}', historyText)
 
-  const result = streamText({
-    model: deepseek('deepseek-v4-pro'),
-    system: systemMessage,
-    messages: convertToModelMessages(messages),
-    tools: clientTools,
-    temperature: 0.7,
-    maxOutputTokens: 4096,
-    frequencyPenalty: 0.3,
-    presencePenalty: 0.2,
-  })
+  const { primary, fallback } = getModels()
 
-  return result.toUIMessageStreamResponse()
+  /** 执行 streamText，失败时自动切换备用模型 */
+  async function tryStream(model: ReturnType<typeof createQwenModel>, label: string) {
+    return streamText({
+      model,
+      system: systemMessage,
+      messages: convertToModelMessages(messages),
+      tools: clientTools,
+      temperature: 0.7,
+      maxOutputTokens: 4096,
+      frequencyPenalty: 0.3,
+      presencePenalty: 0.2,
+    })
+  }
+
+  try {
+    const result = await tryStream(primary, 'primary')
+    return result.toUIMessageStreamResponse()
+  } catch (e) {
+    // 主模型失败（余额不足 / 网络异常），自动降级到备用模型
+    console.warn(`[方向感] 主模型失败，自动切换备用模型：${String(e).slice(0, 200)}`)
+    try {
+      const result = await tryStream(fallback, 'fallback')
+      return result.toUIMessageStreamResponse()
+    } catch (e2) {
+      console.error(`[方向感] 备用模型也失败了：${String(e2).slice(0, 200)}`)
+      return new Response(
+        JSON.stringify({ error: 'AI 服务暂时不可用，两个模型都调用失败，请稍后重试' }),
+        { status: 502, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+  }
 }

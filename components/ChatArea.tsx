@@ -204,22 +204,25 @@ export default function ChatArea({
     },
   })
 
-  // 客户端挂载后：本地消息优先，本地有的就用本地的并上传覆盖云端
+  // 客户端挂载后：本地消息优先（本地只有欢迎消息时除外，走云端）
   useEffect(() => {
     const init = async () => {
       const saved = loadMessages() as UIMessage[]
 
+      // 判断本地是否只有欢迎消息（防止空记录覆盖云端真实对话）
+      const onlyWelcome = saved.length === 1 && saved[0].id === 'welcome'
+
       if (conversationId) {
         try {
-          // 本地有消息 → 用本地的，同时上传覆盖云端
-          if (saved.length > 0) {
+          if (saved.length > 0 && !onlyWelcome) {
+            // 本地有真实消息 → 用本地，上传覆盖云端
             setMessages(saved)
             replaceMessages(conversationId, saved).catch((err) =>
               console.error('云端消息上传失败:', err)
             )
             return
           }
-          // 本地没有 → 用云端的
+          // 本地空/仅欢迎消息 → 用云端
           const cloudMsgs = await fetchMessages(conversationId)
           if (cloudMsgs.length > 0) {
             setMessages(cloudMsgs)

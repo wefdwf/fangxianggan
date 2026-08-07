@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json()
-  const { messages, step, assessmentHistory } = body
+  const { messages, step, assessmentHistory, maxTokens } = body
   const systemMessage = buildSystemMessage(messages, step, assessmentHistory)
 
   // 先尝试主模型
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       messages: convertToModelMessages(messages),
       tools: clientTools,
       temperature: 0.7,
-      maxOutputTokens: 2048,
+      maxOutputTokens: maxTokens || 2048,
     })
     return result.toUIMessageStreamResponse()
   } catch (e: unknown) {
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
           messages: convertToModelMessages(messages),
           tools: clientTools,
           temperature: 0.7,
-          maxOutputTokens: 2048,
+          maxOutputTokens: maxTokens || 2048,
         })
         return result.toUIMessageStreamResponse()
       } catch (e2: unknown) {

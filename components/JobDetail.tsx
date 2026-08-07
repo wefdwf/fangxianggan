@@ -32,7 +32,7 @@ function priorityBadgeStyle(priority: string): { bg: string; text: string } {
   return { bg: '#f8fafc', text: '#64748b' }
 }
 
-/** 构建初始分析请求 prompt */
+/** 精简版 prompt——适配 Netlify 10s 超时 */
 function buildQuery(job: JobMatch, skills: SkillItem[], hollandScores?: HollandScores): string {
   const skillsSummary = skills
     .map((s) => `${s.name}(AI评分${s.aiScore}${s.selfScore ? `,自评${s.selfScore}` : ''})`)
@@ -71,6 +71,45 @@ function buildQuery(job: JobMatch, skills: SkillItem[], hollandScores?: HollandS
 2-3 条具体可执行的行动建议，每条一句话：做什么 + 怎么做。`
 }
 
+/** 完整版 prompt——本地重新生成时使用，无超时限制 */
+function buildQueryFull(job: JobMatch, skills: SkillItem[], hollandScores?: HollandScores): string {
+  const skillsSummary = skills
+    .map((s) => `${s.name}(AI评分${s.aiScore}${s.selfScore ? `,自评${s.selfScore}` : ''})`)
+    .join('；')
+
+  const hollandSummary = hollandScores
+    ? `R=${hollandScores.R} I=${hollandScores.I} A=${hollandScores.A} S=${hollandScores.S} E=${hollandScores.E} C=${hollandScores.C}`
+    : '未测评'
+
+  return `请为【${job.title}】生成一份详细的岗位分析报告。投递优先级：${job.priority || '未指定'}。匹配度：${job.match}%。
+
+**全局约束：每模块 3-5 条要点，每条 1-2 句话。从第一个 ### 直接开始，不要在前面写任何开场白。**
+
+按以下 6 个模块依次展开，每模块用小标题（###）：
+
+### 📖 岗位概述
+这个岗位是做什么的、核心价值是什么、在哪些行业/公司中常见。
+
+### 💼 核心工作
+这个岗位实际解决什么问题、每天主要做什么、最重要的产出是什么。
+
+### ⭐ 你需要突出的能力
+结合以下用户测评数据，指出面试和简历中最应强调的 3-5 项能力，并说明为什么：
+- 霍兰德得分：${hollandSummary}
+- 能力评估：${skillsSummary}
+- 推荐理由：${job.reasons.join('、')}
+
+### 🛤️ 准备路径
+入行或转岗前需要补的知识/技能（3-5 项），每项附一个推荐学习资源。
+
+### 📊 能力差距分析
+将用户当前能力与岗位要求逐项对比，按差距优先级排列，给出补足建议。
+- 需要补足：${job.gaps.join('、')}
+
+### 🚀 下一步行动
+3-5 条具体可执行的行动建议，每条一句话：做什么 + 怎么做。`
+}
+
 /** 将报告文本按 ### 标题拆分为分段 */
 function splitSections(markdown: string): { title: string; body: string }[] {
   const sections: { title: string; body: string }[] = []
@@ -106,28 +145,44 @@ export default function JobDetail({ job, skills, hollandScores, onBack, onReport
     return loadJobReport(job.title)
   })
 
-  const { messages, sendMessage, status } = useChat({
+  const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+
+  const { messages, sendMessage, status, setMessages } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
-      body: { step: 6 },
+      body: () => ({ step: 6, maxTokens: isLocal ? 8192 : undefined }),
     }),
   })
 
-  const sentRef = useRef(false)
-  useEffect(() => {
-    if (sentRef.current) return
-    sentRef.current = true
+  // 0 = 首次加载，>0 = 重新生成次数
+  const [regenerateCount, setRegenerateCount] = useState(0)
 
-    const cached = loadJobReport(job.title)
-    if (cached) {
-      setCachedReport(cached)
-      return
+  useEffect(() => {
+    if (regenerateCount === 0) {
+      // 首次：优先读缓存
+      const cached = loadJobReport(job.title)
+      if (cached) {
+        setCachedReport(cached)
+        return
+      }
+    } else {
+      // 重新生成：清空消息和缓存
+      setMessages([])
+      setCachedReport(null)
     }
 
+    const query = regenerateCount > 0
+      ? buildQueryFull(job, skills, hollandScores)
+      : buildQuery(job, skills, hollandScores)
+
     requestAnimationFrame(() => {
-      sendMessage({ text: buildQuery(job, skills, hollandScores) })
+      sendMessage({ text: query })
     })
-  }, [])
+  }, [regenerateCount])
+
+  const handleRegenerate = () => {
+    setRegenerateCount((k) => k + 1)
+  }
 
   // 流式完成后才写入缓存（确保内容完整）
   const prevStatusRef = useRef(status)
@@ -196,6 +251,16 @@ export default function JobDetail({ job, skills, hollandScores, onBack, onReport
         >
           {job.match}% 匹配
         </span>
+        {isLocal && (
+          <button
+            onClick={handleRegenerate}
+            disabled={isBusy}
+            title="重新生成完整报告（本地不限时）"
+            className="text-[10px] px-2 py-0.5 rounded-full border border-border text-text-muted hover:text-primary hover:border-primary/40 disabled:opacity-30 transition-colors flex-shrink-0"
+          >
+            {isBusy ? '生成中...' : '重新生成'}
+          </button>
+        )}
       </div>
 
       {/* 报告内容区 */}

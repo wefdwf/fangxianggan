@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import ChatArea from '@/components/ChatArea'
 import Sidebar from '@/components/Sidebar'
 import JobDetail from '@/components/JobDetail'
-import { loadState, saveState, clearState, clearMessages, clearJobReports, saveJobReport, loadJobReport } from '@/lib/storage'
+import { loadState, saveState, clearState, clearMessages, clearJobReports, saveJobReport, loadJobReport, getAllLocalJobReports } from '@/lib/storage'
 import { getOrCreateConversation, saveConversationState, clearCloudData } from '@/lib/cloud-storage'
 import { useAuth } from '@/components/AuthProvider'
 import { getSupabase, getSupabaseSafe } from '@/lib/supabase-client'
@@ -42,11 +42,22 @@ export default function Home() {
           // 云端有状态就用云端的
           if (result.state && result.state.step) {
             setState(result.state)
-            // 云端有岗位报告 → 同步到本地 localStorage
+            // 云端有岗位报告 → 同步到本地
             if (result.state.jobReports) {
               for (const [title, content] of Object.entries(result.state.jobReports)) {
                 if (!loadJobReport(title)) saveJobReport(title, content as string)
               }
+            }
+            // 本地有云端没有的报告 → 上传到云端
+            const localKeys = Object.keys(getAllLocalJobReports())
+            const missingKeys = localKeys.filter((k) => !result.state.jobReports?.[k])
+            if (missingKeys.length > 0) {
+              const merged = { ...result.state.jobReports }
+              for (const k of missingKeys) {
+                const c = loadJobReport(k)
+                if (c) merged[k] = c
+              }
+              setState((prev) => ({ ...prev, jobReports: merged }))
             }
           } else {
             // 云端没有有效状态，回退 localStorage

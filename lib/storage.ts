@@ -146,6 +146,12 @@ function loadAllJobReports(): Record<string, string> {
   }
 }
 
+/** 获取全部本地岗位报告 key 列表 */
+export function getAllLocalJobReports(): Record<string, string> {
+  if (typeof window === 'undefined') return {}
+  return loadAllJobReports()
+}
+
 /** 清除全部岗位报告缓存 */
 export function clearJobReports(): void {
   if (typeof window === 'undefined') return

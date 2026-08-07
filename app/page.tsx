@@ -48,12 +48,11 @@ export default function Home() {
                 if (!loadJobReport(title)) saveJobReport(title, content as string)
               }
             }
-            // 本地有云端没有的报告 → 上传到云端
+            // 本地所有报告 → 上传到云端（本地覆盖云端）
             const localKeys = Object.keys(getAllLocalJobReports())
-            const missingKeys = localKeys.filter((k) => !result.state.jobReports?.[k])
-            if (missingKeys.length > 0) {
+            if (localKeys.length > 0) {
               const merged = { ...result.state.jobReports }
-              for (const k of missingKeys) {
+              for (const k of localKeys) {
                 const c = loadJobReport(k)
                 if (c) merged[k] = c
               }

@@ -204,11 +204,22 @@ export default function ChatArea({
     },
   })
 
-  // 客户端挂载后，优先从云端恢复聊天记录；都没有则显示欢迎消息
+  // 客户端挂载后：本地消息优先，本地有的就用本地的并上传覆盖云端
   useEffect(() => {
     const init = async () => {
+      const saved = loadMessages() as UIMessage[]
+
       if (conversationId) {
         try {
+          // 本地有消息 → 用本地的，同时上传覆盖云端
+          if (saved.length > 0) {
+            setMessages(saved)
+            replaceMessages(conversationId, saved).catch((err) =>
+              console.error('云端消息上传失败:', err)
+            )
+            return
+          }
+          // 本地没有 → 用云端的
           const cloudMsgs = await fetchMessages(conversationId)
           if (cloudMsgs.length > 0) {
             setMessages(cloudMsgs)
@@ -218,7 +229,7 @@ export default function ChatArea({
           console.error('云端消息加载失败:', err)
         }
       }
-      const saved = loadMessages() as UIMessage[]
+
       if (saved.length > 0) {
         setMessages(saved)
         return

@@ -1,49 +1,41 @@
-import { createDeepSeek } from '@ai-sdk/deepseek'
+import { deepseek, createDeepSeek } from '@ai-sdk/deepseek'
 import { streamText, convertToModelMessages } from 'ai'
 import { SYSTEM_PROMPT } from '@/lib/prompts'
 import { clientTools } from '@/lib/tools'
 import { createServerClient } from '@supabase/ssr'
 import type { NextRequest } from 'next/server'
 
-/** 创建千问模型实例 */
-function createQwenModel() {
-  const qwen = createDeepSeek({
-    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    apiKey: process.env.DASHSCOPE_API_KEY,
-  })
-  return qwen(process.env.AI_MODEL || 'qwen-plus')
-}
-
-/** 创建 DeepSeek 模型实例 */
-function createDsModel() {
-  const ds = createDeepSeek({
-    apiKey: process.env.DEEPSEEK_API_KEY,
-  })
-  return ds(process.env.AI_MODEL || 'deepseek-v4-pro')
-}
-
-/** 根据 AI_PROVIDER 返回主模型和备用模型 */
-function getModels() {
+/** 根据 AI_PROVIDER 创建模型，千问优先、DeepSeek 自动降级 */
+function getModel() {
   const provider = process.env.AI_PROVIDER || 'qwen'
-  if (provider === 'deepseek') {
-    return { primary: createDsModel(), fallback: createQwenModel() }
+
+  if (provider === 'qwen') {
+    const qwen = createDeepSeek({
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      apiKey: process.env.DASHSCOPE_API_KEY,
+    })
+    return qwen(process.env.AI_MODEL || 'qwen-plus')
   }
-  return { primary: createQwenModel(), fallback: createDsModel() }
+
+  return deepseek(process.env.AI_MODEL || 'deepseek-v4-pro')
 }
 
-/** 从请求 cookie 中校验用户身份，返回 userId 或 null */
+/** 获取降级模型（DeepSeek） */
+function getFallbackModel() {
+  return deepseek(process.env.AI_MODEL || 'deepseek-v4-pro')
+}
+
 async function getUserId(req: NextRequest): Promise<string | null> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!supabaseUrl || !supabaseKey) {
-    // 未配置 Supabase → 降级为本地模式，允许无鉴权访问
     return 'local-user'
   }
   try {
     const supabase = createServerClient(supabaseUrl, supabaseKey, {
       cookies: {
         getAll() { return req.cookies.getAll() },
-        setAll() {}, // API 路由不需要写 cookie
+        setAll() {},
       },
     })
     const { data: { user } } = await supabase.auth.getUser()
@@ -51,6 +43,33 @@ async function getUserId(req: NextRequest): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+function buildSystemMessage(messages: unknown[], step: number, assessmentHistory: unknown[]) {
+  let systemMessage = SYSTEM_PROMPT.replace('{step}', String(step || 1))
+
+  let historyText = '暂无历史测评记录'
+  if (assessmentHistory && assessmentHistory.length > 0) {
+    historyText = assessmentHistory.map((r: unknown, i: number) => {
+      const rec = r as Record<string, unknown>
+      const dateStr = typeof rec.date === 'string' ? rec.date.slice(0, 10) : '未知日期'
+      const hs = rec.hollandScores as Record<string, number> | undefined
+      const holland = hs
+        ? `R=${hs.R} I=${hs.I} A=${hs.A} S=${hs.S} E=${hs.E} C=${hs.C}`
+        : '未测评'
+      const skills = rec.skills as Array<{ name: string; aiScore: number; selfScore?: number }> | undefined
+      const skillList = skills?.length
+        ? skills.map((s) => `${s.name}(AI=${s.aiScore}${s.selfScore ? `, 自评=${s.selfScore}` : ''})`).join('、')
+        : '无'
+      const jobs = rec.jobMatches as Array<{ title: string }> | undefined
+      const jobList = jobs?.length
+        ? jobs.map((j) => j.title).join('、')
+        : '无'
+      return `第${i + 1}次测评（${dateStr}）—— 霍兰德：${holland}｜能力：${skillList}｜匹配岗位：${jobList}`
+    }).join('\n')
+  }
+  systemMessage = systemMessage.replace('{assessmentHistory}', historyText)
+  return systemMessage
 }
 
 export async function POST(req: NextRequest) {
@@ -62,58 +81,48 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  const { messages, step, assessmentHistory } = await req.json()
+  const body = await req.json()
+  const { messages, step, assessmentHistory } = body
+  const systemMessage = buildSystemMessage(messages, step, assessmentHistory)
 
-  let systemMessage = SYSTEM_PROMPT.replace('{step}', String(step || 1))
-
-  // 注入测评历史
-  let historyText = '暂无历史测评记录'
-  if (assessmentHistory && assessmentHistory.length > 0) {
-    historyText = assessmentHistory.map((r: { date: string; hollandScores?: Record<string, number>; skills?: Array<{ name: string; aiScore: number; selfScore?: number }>; jobMatches?: Array<{ title: string }> }, i: number) => {
-      const dateStr = r.date ? r.date.slice(0, 10) : '未知日期'
-      const holland = r.hollandScores
-        ? `R=${r.hollandScores.R} I=${r.hollandScores.I} A=${r.hollandScores.A} S=${r.hollandScores.S} E=${r.hollandScores.E} C=${r.hollandScores.C}`
-        : '未测评'
-      const skillList = r.skills?.length
-        ? r.skills.map((s) => `${s.name}(AI=${s.aiScore}${s.selfScore ? `, 自评=${s.selfScore}` : ''})`).join('、')
-        : '无'
-      const jobList = r.jobMatches?.length
-        ? r.jobMatches.map((j) => j.title).join('、')
-        : '无'
-      return `第${i + 1}次测评（${dateStr}）—— 霍兰德：${holland}｜能力：${skillList}｜匹配岗位：${jobList}`
-    }).join('\n')
-  }
-  systemMessage = systemMessage.replace('{assessmentHistory}', historyText)
-
-  const { primary, fallback } = getModels()
-
-  /** 执行 streamText，失败时自动切换备用模型 */
-  async function tryStream(model: ReturnType<typeof createQwenModel>, label: string) {
-    return streamText({
-      model,
+  // 先尝试主模型
+  try {
+    const result = streamText({
+      model: getModel(),
       system: systemMessage,
       messages: convertToModelMessages(messages),
       tools: clientTools,
       temperature: 0.7,
       maxOutputTokens: 4096,
     })
-  }
-
-  try {
-    const result = await tryStream(primary, 'primary')
     return result.toUIMessageStreamResponse()
-  } catch (e) {
-    // 主模型失败（余额不足 / 网络异常），自动降级到备用模型
-    console.warn(`[方向感] 主模型失败，自动切换备用模型：${String(e).slice(0, 200)}`)
-    try {
-      const result = await tryStream(fallback, 'fallback')
-      return result.toUIMessageStreamResponse()
-    } catch (e2) {
-      console.error(`[方向感] 备用模型也失败了：${String(e2).slice(0, 200)}`)
-      return new Response(
-        JSON.stringify({ error: 'AI 服务暂时不可用，两个模型都调用失败，请稍后重试' }),
-        { status: 502, headers: { 'Content-Type': 'application/json' } },
-      )
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`[方向感] 主模型调用失败: ${msg.slice(0, 300)}`)
+
+    // 尝试降级到 DeepSeek
+    const provider = process.env.AI_PROVIDER || 'qwen'
+    if (provider === 'qwen' && process.env.DEEPSEEK_API_KEY) {
+      console.warn('[方向感] 自动降级到 DeepSeek')
+      try {
+        const result = streamText({
+          model: getFallbackModel(),
+          system: systemMessage,
+          messages: convertToModelMessages(messages),
+          tools: clientTools,
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        })
+        return result.toUIMessageStreamResponse()
+      } catch (e2: unknown) {
+        const msg2 = e2 instanceof Error ? e2.message : String(e2)
+        console.error(`[方向感] DeepSeek 降级也失败: ${msg2.slice(0, 300)}`)
+      }
     }
+
+    return new Response(
+      JSON.stringify({ error: `AI 服务调用失败：${msg}` }),
+      { status: 502, headers: { 'Content-Type': 'application/json' } },
+    )
   }
 }

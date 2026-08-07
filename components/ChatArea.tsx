@@ -199,6 +199,9 @@ export default function ChatArea({
       // showHollandAssessment / showSelfAssessment：纯 UI 触发，不需额外处理
       addToolOutput({ tool: toolCall.toolName, toolCallId: toolCall.toolCallId, output: 'ok' })
     },
+    onError(error) {
+      console.error('[方向感] 对话请求失败:', error)
+    },
   })
 
   // 客户端挂载后，优先从云端恢复聊天记录；都没有则显示欢迎消息

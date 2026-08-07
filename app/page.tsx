@@ -149,15 +149,16 @@ export default function Home() {
         }
         console.log('[方向感] 同步完成：已上传', localMsgs.length, '条消息到云端')
       } else {
-        // 移动端：从云端下载 → 本地
+        // 移动端：从云端下载 → 保存到本地 → 刷新页面
         const cloudMsgs = await fetchMessages(convIdRef.current)
         if (cloudMsgs.length > 0) {
           saveMessages(cloudMsgs)
-          setChatKey((k) => k + 1) // 触发 ChatArea 重新加载
-          console.log('[方向感] 同步完成：已从云端下载', cloudMsgs.length, '条消息')
-        } else {
-          console.log('[方向感] 同步完成：云端也无消息，跳过')
+          console.log('[方向感] 同步完成：已从云端下载', cloudMsgs.length, '条消息，即将刷新')
+          setSyncStatus('success')
+          setTimeout(() => window.location.reload(), 600)
+          return
         }
+        console.log('[方向感] 同步完成：云端也无消息，跳过')
       }
 
       setSyncStatus('success')

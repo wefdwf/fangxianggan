@@ -8,7 +8,7 @@ import JobDetail from '@/components/JobDetail'
 import { loadState, saveState, clearState, clearMessages, clearJobReports } from '@/lib/storage'
 import { getOrCreateConversation, saveConversationState, clearCloudData } from '@/lib/cloud-storage'
 import { useAuth } from '@/components/AuthProvider'
-import { getSupabase } from '@/lib/supabase-client'
+import { getSupabase, getSupabaseSafe } from '@/lib/supabase-client'
 import type { ChatState, HollandScores, SkillItem, JobMatch } from '@/lib/types'
 
 const DEFAULT_STATE: ChatState = { step: 1, skills: [], pendingSkills: [] }
@@ -62,6 +62,15 @@ export default function Home() {
 
     init()
   }, [authLoading, user])
+
+  // Supabase 已配置但用户未登录 → 跳转登录页
+  useEffect(() => {
+    if (authLoading) return
+    const supabase = getSupabaseSafe()
+    if (supabase && !user) {
+      router.replace('/login')
+    }
+  }, [authLoading, user, router])
 
   // 状态变化自动保存（跳过首次加载前，防止覆盖已保存状态）
   useEffect(() => {

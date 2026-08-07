@@ -231,31 +231,6 @@ export default function ChatArea({
             setMessages(cloudMsgs)
             return
           }
-
-          // 云端也无消息，但进度 > 1 → 诊断提示（消息同步可能失败）
-          if (cloudMsgs.length === 0 && step > 1) {
-            setMessages([
-              {
-                id: 'sync-missing',
-                role: 'assistant' as const,
-                parts: [{
-                  type: 'text' as const,
-                  text: `⚠️ **云端同步诊断**
-
-你的进度已保存（第 ${step} 步），但**聊天消息未能从云端加载**。
-
-**修复步骤：**
-1. 在**桌面端**重新打开方向感并登录
-2. 确认控制台出现 \`[方向感] 本地消息已上传云端，共 X 条\`
-3. 回到**本页面**刷新
-
-如果桌面端控制台报错，请截图给我。`,
-                }],
-                createdAt: new Date(),
-              } as UIMessage,
-            ])
-            return
-          }
         } catch (err) {
           console.error('云端消息加载失败:', err)
         }

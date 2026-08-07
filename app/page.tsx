@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import ChatArea from '@/components/ChatArea'
 import Sidebar from '@/components/Sidebar'
 import JobDetail from '@/components/JobDetail'
-import { loadState, saveState, clearState, clearMessages, clearJobReports, saveJobReport, loadJobReport, getAllLocalJobReports } from '@/lib/storage'
-import { getOrCreateConversation, saveConversationState, clearCloudData } from '@/lib/cloud-storage'
+import { loadState, saveState, clearState, clearMessages, clearJobReports, saveJobReport, loadJobReport, getAllLocalJobReports, loadMessages, saveMessages } from '@/lib/storage'
+import { getOrCreateConversation, saveConversationState, clearCloudData, replaceMessages, fetchMessages } from '@/lib/cloud-storage'
 import { useAuth } from '@/components/AuthProvider'
 import { getSupabase, getSupabaseSafe } from '@/lib/supabase-client'
 import type { ChatState, HollandScores, SkillItem, JobMatch } from '@/lib/types'
@@ -106,6 +106,7 @@ export default function Home() {
   const [jumpTarget, setJumpTarget] = useState<number | null>(null)
   const [jobQuery, setJobQuery] = useState<string | null>(null)
   const [selectedJob, setSelectedJob] = useState<JobMatch | null>(null)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
 
   // 清除所有记录
   const handleClear = useCallback(() => {
@@ -128,6 +129,45 @@ export default function Home() {
     await supabase.auth.signOut()
     router.push('/login')
   }, [router])
+
+  // 手动同步：本地有消息→上传云端，本地空→从云端下载
+  const handleSync = useCallback(async () => {
+    if (!convIdRef.current) return
+    setSyncStatus('syncing')
+
+    try {
+      const localMsgs = loadMessages() as Array<{ id: string }>
+      const hasRealMessages = localMsgs.length > 0 && localMsgs[0]?.id !== 'welcome'
+
+      if (hasRealMessages) {
+        // 桌面端：上传本地 → 云端
+        await replaceMessages(convIdRef.current, localMsgs as any)
+        // 同时上传岗位报告
+        const localReports = getAllLocalJobReports()
+        if (Object.keys(localReports).length > 0) {
+          setState((prev) => ({ ...prev, jobReports: { ...prev.jobReports, ...localReports } }))
+        }
+        console.log('[方向感] 同步完成：已上传', localMsgs.length, '条消息到云端')
+      } else {
+        // 移动端：从云端下载 → 本地
+        const cloudMsgs = await fetchMessages(convIdRef.current)
+        if (cloudMsgs.length > 0) {
+          saveMessages(cloudMsgs)
+          setChatKey((k) => k + 1) // 触发 ChatArea 重新加载
+          console.log('[方向感] 同步完成：已从云端下载', cloudMsgs.length, '条消息')
+        } else {
+          console.log('[方向感] 同步完成：云端也无消息，跳过')
+        }
+      }
+
+      setSyncStatus('success')
+      setTimeout(() => setSyncStatus('idle'), 2000)
+    } catch (err) {
+      console.error('[方向感] 同步失败:', err)
+      setSyncStatus('error')
+      setTimeout(() => setSyncStatus('idle'), 3000)
+    }
+  }, [])
 
   const setStep = useCallback((step: number) => {
     setState((s) => ({ ...s, step }))
@@ -186,6 +226,24 @@ export default function Home() {
           <span className="text-xs text-text-muted tabular-nums">
             {state.step}/6 · {STEP_LABELS[state.step - 1]}
           </span>
+          {user && (
+            <button
+              onClick={handleSync}
+              disabled={syncStatus === 'syncing'}
+              title={
+                syncStatus === 'syncing' ? '同步中...' :
+                syncStatus === 'success' ? '同步成功！' :
+                syncStatus === 'error' ? '同步失败，请重试' :
+                '同步云端数据'
+              }
+              className="text-xs text-text-muted hover:text-primary disabled:opacity-50 transition-colors px-1"
+            >
+              {syncStatus === 'syncing' ? '⏳' :
+               syncStatus === 'success' ? '✅' :
+               syncStatus === 'error' ? '❌' :
+               '🔄'}
+            </button>
+          )}
           {user && (
             <button
               onClick={handleLogout}

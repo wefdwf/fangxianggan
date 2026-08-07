@@ -96,8 +96,6 @@ export async function POST(req: NextRequest) {
       tools: clientTools,
       temperature: 0.7,
       maxOutputTokens: 4096,
-      frequencyPenalty: 0.3,
-      presencePenalty: 0.2,
     })
   }
 

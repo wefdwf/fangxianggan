@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
       messages: convertToModelMessages(messages),
       tools: clientTools,
       temperature: 0.7,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,
     })
     return result.toUIMessageStreamResponse()
   } catch (e: unknown) {
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
           messages: convertToModelMessages(messages),
           tools: clientTools,
           temperature: 0.7,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 8192,
         })
         return result.toUIMessageStreamResponse()
       } catch (e2: unknown) {

@@ -7,7 +7,7 @@ import type { NextRequest } from 'next/server'
 
 /** 根据 AI_PROVIDER 创建模型，千问优先、DeepSeek 自动降级 */
 function getModel() {
-  const provider = process.env.AI_PROVIDER || 'qwen'
+  const provider = process.env.AI_PROVIDER || 'deepseek'
 
   if (provider === 'qwen') {
     const qwen = createDeepSeek({
@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
     console.error(`[方向感] 主模型调用失败: ${msg.slice(0, 300)}`)
 
     // 尝试降级到 DeepSeek
-    const provider = process.env.AI_PROVIDER || 'qwen'
+    const provider = process.env.AI_PROVIDER || 'deepseek'
     if (provider === 'qwen' && process.env.DEEPSEEK_API_KEY) {
       console.warn('[方向感] 自动降级到 DeepSeek')
       try {

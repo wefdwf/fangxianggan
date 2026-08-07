@@ -41,5 +41,6 @@ export interface ChatState {
   skills: SkillItem[]
   pendingSkills: SkillItem[]  // 待确定框
   jobMatches?: JobMatch[]
+  jobReports?: Record<string, string>  // 岗位分析报告缓存（岗位名 → 报告内容）
   finalAdvice?: string
 }

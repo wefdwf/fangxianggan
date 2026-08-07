@@ -12,6 +12,7 @@ interface Props {
   skills: SkillItem[]
   hollandScores?: HollandScores
   onBack: () => void
+  onReportGenerated?: (title: string, content: string) => void
 }
 
 /** 从 UIMessage 的 parts 中提取纯文本 */
@@ -43,7 +44,7 @@ function buildQuery(job: JobMatch, skills: SkillItem[], hollandScores?: HollandS
 
   return `请为【${job.title}】生成一份精简的岗位分析报告。投递优先级：${job.priority || '未指定'}。匹配度：${job.match}%。
 
-**全局约束：每模块 2-3 条要点，每条严格 1 句，全文控制在 500 字以内。不写背景铺垫，直接给干货。**
+**全局约束：每模块 3-5 条要点，每条 1-2 句话，精简不啰嗦。从第一个 ### 直接开始，不要在前面写任何开场白或简介。**
 
 按以下 6 个模块依次展开，每模块用小标题（###）：
 
@@ -96,7 +97,7 @@ function sectionIcon(title: string): string {
   return '📌'
 }
 
-export default function JobDetail({ job, skills, hollandScores, onBack }: Props) {
+export default function JobDetail({ job, skills, hollandScores, onBack, onReportGenerated }: Props) {
   const matchColor = job.match >= 80 ? '#22c55e' : job.match >= 60 ? '#6366f1' : job.match >= 40 ? '#f59e0b' : '#ef4444'
   const badge = job.priority ? priorityBadgeStyle(job.priority) : null
 
@@ -139,6 +140,7 @@ export default function JobDetail({ job, skills, hollandScores, onBack }: Props)
         if (fullText.trim().length > 200) {
           saveJobReport(job.title, fullText)
           setCachedReport(fullText)
+          onReportGenerated?.(job.title, fullText)
         }
       }, 300)
       return () => clearTimeout(timer)

@@ -215,11 +215,14 @@ export default function ChatArea({
       if (conversationId) {
         try {
           if (saved.length > 0 && !onlyWelcome) {
-            // 本地有真实消息 → 用本地，上传覆盖云端
+            // 本地有真实消息 → 用本地，上传覆盖云端（等上传完成）
             setMessages(saved)
-            replaceMessages(conversationId, saved).catch((err) =>
-              console.error('云端消息上传失败:', err)
-            )
+            try {
+              await replaceMessages(conversationId, saved)
+              console.log('[方向感] 本地消息已上传云端，共', saved.length, '条')
+            } catch (err) {
+              console.error('[方向感] 云端消息上传失败:', err)
+            }
             return
           }
           // 本地空/仅欢迎消息 → 用云端

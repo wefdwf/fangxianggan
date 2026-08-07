@@ -85,7 +85,10 @@ export async function saveConversationState(state: ChatState): Promise<void> {
 export async function fetchMessages(conversationId: string): Promise<UIMessage[]> {
   const supabase = getSupabase()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return []
+  if (!user) {
+    console.warn('[方向感] fetchMessages: 未登录，跳过')
+    return []
+  }
 
   const { data, error } = await supabase
     .from('messages')
@@ -94,10 +97,11 @@ export async function fetchMessages(conversationId: string): Promise<UIMessage[]
     .order('created_at', { ascending: true })
 
   if (error) {
-    console.error('fetchMessages error:', error)
+    console.error('[方向感] fetchMessages 查询失败:', error.message, 'code:', error.code)
     return []
   }
 
+  console.log('[方向感] fetchMessages: 查到', data?.length || 0, '条, cid:', conversationId.slice(0, 8))
   return (data || []).map((row: { ui_message: unknown }) => row.ui_message as UIMessage)
 }
 
@@ -127,7 +131,7 @@ export async function replaceMessages(
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const batch = rows.slice(i, i + BATCH_SIZE)
     const { error } = await supabase.from('messages').insert(batch)
-    if (error) console.error('replaceMessages batch insert error:', error)
+    if (error) throw new Error(`消息插入失败(第${i / BATCH_SIZE + 1}批): ${error.message}`)
   }
 }
 
